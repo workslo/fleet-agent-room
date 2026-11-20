@@ -491,14 +491,34 @@ async function ensureServer() {
   throw new Error(`Could not start Agent Room at ${BASE_URL}. See ${LOG_PATH}`);
 }
 
+// Flags that always take the next token as their value, so a message like "--force is risky" isn't misread as a flag.
+const VALUE_FLAGS = new Set(["title", "objective", "name", "user-name", "message", "summary"]);
+const DEFAULT_WAIT_SECONDS = 45;
+
 function argsOf(values) {
   const result = { _: [] };
   for (let index = 0; index < values.length; index += 1) {
     const value = values[index];
-    if (value.startsWith("--")) result[value.slice(2)] = values[index + 1] && !values[index + 1].startsWith("--") ? values[++index] : true;
-    else result._.push(value);
+    if (!value.startsWith("--")) { result._.push(value); continue; }
+    const equals = value.indexOf("=");
+    if (equals > 2) { result[value.slice(2, equals)] = value.slice(equals + 1); continue; }
+    const key = value.slice(2);
+    const next = values[index + 1];
+    if (VALUE_FLAGS.has(key)) {
+      if (next === undefined) throw new Error(`--${key} requires a value`);
+      result[key] = values[++index];
+    } else {
+      result[key] = next !== undefined && !next.startsWith("--") ? values[++index] : true;
+    }
   }
   return result;
+}
+
+function waitSeconds(value) {
+  if (value === undefined || value === true) return DEFAULT_WAIT_SECONDS;
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds)) throw new Error(`--wait must be a number of seconds, got "${value}"`);
+  return Math.min(300, Math.max(0, seconds));
 }
 
 function messagesText(messages) {
@@ -551,14 +571,14 @@ async function main() {
     const result = await api("POST", `/api/rooms/${roomCode}/messages`, { name: required(args, "name"), content: required(args, "message") });
     console.log(`Sent message #${result.message.id} as ${result.message.sender}.`);
     if (args.wait !== undefined) {
-      const wait = Math.min(300, Math.max(0, Number(args.wait || 45)));
+      const wait = waitSeconds(args.wait);
       const reply = await api("GET", `/api/rooms/${roomCode}/messages?name=${encodeURIComponent(args.name)}&wait=${wait}`, undefined, (wait + 5) * 1000);
       console.log(`\nRoom ${reply.room} is ${reply.status}; ${reply.active_agents} agent(s) active.\n${responseGuidance(reply)}\n${messagesText(reply.messages)}`);
     }
     return;
   }
   if (command === "listen") {
-    const name = required(args, "name"); const wait = Math.min(300, Math.max(0, Number(args.wait || 45)));
+    const name = required(args, "name"); const wait = waitSeconds(args.wait);
     const result = await api("GET", `/api/rooms/${roomCode}/messages?name=${encodeURIComponent(name)}&wait=${wait}`, undefined, (wait + 5) * 1000);
     console.log(`Room ${result.room} is ${result.status}; ${result.active_agents} agent(s) active.\n${responseGuidance(result)}\n${messagesText(result.messages)}`); return;
   }
