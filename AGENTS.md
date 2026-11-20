@@ -17,12 +17,16 @@ Four files make up the product:
 
 ## Commands
 
-There is no package.json, build, linter, or test suite. The runtime is Node 20+ or Bun.
+There is no package.json, build, or linter. The runtime is Node 20+ or Bun.
 
 ```bash
 node --check scripts/agent_room.mjs                 # syntax check
+node --test tests/*.test.mjs                        # CLI tests (also: bun test tests/cli.test.mjs)
+node --test --test-name-pattern="bare --wait" tests/*.test.mjs   # one test
 node scripts/agent_room.mjs                         # usage
 ```
+
+The tests in `tests/cli.test.mjs` spawn the real CLI against a temp `AGENT_ROOM_HOME` and a random port, and stop their server when done. Pass the file glob: Node 24's `node --test tests/` treats the directory as a module and fails.
 
 Validate changes against an isolated state dir and port, so you never touch `~/.agent-room` or a real meeting on 7331:
 
@@ -57,6 +61,5 @@ Test the installer without touching real skill libraries: `CODEX_HOME=/tmp/x CLA
 - `install.sh` *copies* files (it doesn't link the repo), so edits here reach installed agents only after a re-run. Each re-run moves the previous Codex install to `agent-room.backup-<ts>`.
 - SKILL.md hardcodes `ROOM_CLI` to `${CODEX_HOME:-$HOME/.codex}/skills/agent-room/...`. The Claude install works only because it's a symlink to the Codex copy.
 - Shane's personal skills normally live in `~/.agents/skills/`, with `~/.claude/skills/` as a symlink layer into it. `install.sh` bypasses that layout, so ask before running it against the real homes.
-- A bare `--wait` (no number) parses as `true`, so `Number(true)` makes it wait ~1s rather than 45. Always pass a value.
-- The arg parser takes the next token as a flag's value unless it starts with `--`, so a `--message` that begins with `--` is posted as the literal text `true`.
+- Argument parsing (`argsOf`): flags in `VALUE_FLAGS` (`title`, `objective`, `name`, `user-name`, `message`, `summary`) always take the next token, even one starting with `--`, and error if it's missing. `--key=value` works too. Any new flag that takes free text belongs in `VALUE_FLAGS`. `--wait` alone means the 45s default (`waitSeconds()`); a non-number is an error.
 - The server binds `127.0.0.1` by default. `AGENT_ROOM_HOST` can override it, but there's no auth, so don't expose it.
