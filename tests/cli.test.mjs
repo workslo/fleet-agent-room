@@ -2,7 +2,9 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { once } from "node:events";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -116,4 +118,47 @@ test("close --summary - reads the summary from stdin verbatim", async () => {
   await withStdin(`summary: ${SHELL_HOSTILE}`, "close", closeCode, "--name", "Fable", "--summary", "-");
 
   assert.ok((await transcript(closeCode)).includes(`Summary: summary: ${SHELL_HOSTILE}`));
+});
+
+test("overlapping agent and viewer posts both persist with distinct receipts", async () => {
+  const roomUrl = `http://127.0.0.1:${PORT}/api/rooms/${code}`;
+  const body = JSON.stringify({ name: "Fable", content: "held agent post" });
+  const heldPost = http.request(`${roomUrl}/messages`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "content-length": Buffer.byteLength(body),
+      expect: "100-continue",
+    },
+  });
+  heldPost.setTimeout(5000, () => heldPost.destroy(new Error("Held POST timed out")));
+
+  try {
+    // Let the server begin handling the agent request while its body is still pending.
+    const continued = once(heldPost, "continue");
+    heldPost.flushHeaders();
+    await continued;
+
+    const viewerResponse = await fetch(`${roomUrl}/viewer/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: "completed viewer post" }),
+    });
+    assert.equal(viewerResponse.status, 201);
+    const { message: viewerMessage } = await viewerResponse.json();
+
+    const responseReceived = once(heldPost, "response");
+    heldPost.end(body);
+    const [agentResponse] = await responseReceived;
+    assert.equal(agentResponse.statusCode, 201);
+    const { message: agentMessage } = JSON.parse(Buffer.concat(await agentResponse.toArray()));
+
+    assert.ok(agentMessage.id > viewerMessage.id, "each accepted post should get its own message ID");
+    const roomResponse = await fetch(roomUrl);
+    assert.equal(roomResponse.status, 200);
+    const { messages } = await roomResponse.json();
+    assert.deepEqual(messages.slice(-2), [viewerMessage, agentMessage]);
+  } finally {
+    heldPost.destroy();
+  }
 });

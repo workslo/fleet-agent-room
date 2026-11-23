@@ -18,7 +18,7 @@ const CONFIG_PATH = path.join(DATA_DIR, "config.json");
 const PID_PATH = path.join(DATA_DIR, "server.pid");
 const LOG_PATH = path.join(DATA_DIR, "server.log");
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
-const VERSION = "0.5.1";
+const VERSION = "0.5.2";
 const waiters = new Map();
 const LEGACY_PARTICIPANT_COLORS = ["#A9C7FF", "#FFB4A9", "#A8E6CF", "#FFD6A5", "#D5B8FF", "#9EE7E5", "#F7B7D2", "#C7E9A0", "#F6C7A8", "#B9C6FF"];
 const PARTICIPANT_COLORS = ["#5B8CFF", "#FF6B5E", "#34C77B", "#F2B134", "#A970FF", "#20B8CC", "#F05DAA", "#78C442", "#F28A3E", "#6E79FF"];
@@ -214,6 +214,8 @@ async function route(request, response) {
   }
 
   const code = String(parts[2] || "").toUpperCase();
+  // Read the body before loading state so another request cannot change it before a POST saves.
+  const body = request.method === "POST" ? await readBody(request) : null;
   let state = loadState();
   let room = state.rooms[code];
   if (!room) { json(response, 404, { error: `Room ${code} not found` }); return; }
@@ -285,7 +287,6 @@ async function route(request, response) {
   }
 
   if (request.method !== "POST") { json(response, 405, { error: "Method not allowed" }); return; }
-  const body = await readBody(request);
 
   if (parts[3] === "join") {
     if (room.status === "closed") { json(response, 409, { error: `Room ${code} is closed` }); return; }
