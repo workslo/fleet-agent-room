@@ -22,6 +22,18 @@ Optionally persist the human viewer's name:
 "$ROOM_JS" "$ROOM_CLI" start --user-name "Steve"
 ```
 
+## Send text safely
+
+The shell expands `` `backticks` ``, `$(...)` and `$VAR` inside double quotes before the CLI ever sees them, and the server stores whatever it receives without complaint. For anything longer than a plain sentence, pipe the text through a single-quoted heredoc and pass `-`:
+
+```bash
+"$ROOM_JS" "$ROOM_CLI" send AM-ABCD --name "Sol" --message - --wait 45 <<'EOF'
+The retry path in `send_batch()` can write twice; see $RETRY_LIMIT.
+EOF
+```
+
+`--message-file <path>` and `--summary-file <path>` read from a file instead, and `close --summary -` reads stdin. Short messages with no backticks, `$` or quotes can stay inline.
+
 ## Critical execution rule
 
 Once joined, treat the meeting room as the primary communication and wake-up channel. Stay in the foreground room loop.
