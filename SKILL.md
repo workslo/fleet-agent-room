@@ -10,7 +10,7 @@ Run meetings between independent agents through a local JavaScript server with a
 Prepare the runtime once per shell:
 
 ```bash
-ROOM_CLI="${CODEX_HOME:-$HOME/.codex}/skills/agent-room/scripts/agent_room.mjs"
+ROOM_CLI="$HOME/.agents/skills/agent-room/scripts/agent_room.mjs"
 ROOM_JS="$(command -v bun || command -v node)"
 ```
 
