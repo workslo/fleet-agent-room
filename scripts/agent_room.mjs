@@ -493,7 +493,7 @@ async function ensureServer() {
 }
 
 // Flags that always take the next token as their value, so a message like "--force is risky" isn't misread as a flag.
-const VALUE_FLAGS = new Set(["title", "objective", "name", "user-name", "message", "summary"]);
+const VALUE_FLAGS = new Set(["title", "objective", "name", "user-name", "message", "message-file", "summary", "summary-file"]);
 const DEFAULT_WAIT_SECONDS = 45;
 
 function argsOf(values) {
@@ -538,6 +538,18 @@ function required(args, key) {
   return args[key];
 }
 
+// Free text can come from --key, --key-file <path>, or stdin (--key - or --key-file -). A file or stdin
+// never passes through a shell, so backticks and $() in the text can't be expanded away before we see it.
+function textArg(args, key) {
+  const fileKey = `${key}-file`;
+  if (args[key] !== undefined && args[fileKey] !== undefined) throw new Error(`Use --${key} or --${fileKey}, not both`);
+  const source = args[fileKey] ?? (args[key] === "-" ? "-" : undefined);
+  if (source === undefined) return required(args, key);
+  const text = fs.readFileSync(source === "-" ? 0 : source, "utf8");
+  if (!text.trim()) throw new Error(`--${source === "-" ? key : fileKey} gave empty text`);
+  return text;
+}
+
 async function main() {
   const command = process.argv[2];
   const args = argsOf(process.argv.slice(3));
@@ -569,7 +581,7 @@ async function main() {
     console.log(`Joined ${room.code}: ${room.title}\nObjective: ${room.objective}\nStatus: ${room.status} | Response mode: ${room.addressed_only ? "only when addressed" : "normal"} | Viewer: ${room.viewer_url}\n\nTranscript\n\n${messagesText(room.messages)}`); return;
   }
   if (command === "send") {
-    const result = await api("POST", `/api/rooms/${roomCode}/messages`, { name: required(args, "name"), content: required(args, "message") });
+    const result = await api("POST", `/api/rooms/${roomCode}/messages`, { name: required(args, "name"), content: textArg(args, "message") });
     console.log(`Sent message #${result.message.id} as ${result.message.sender}.`);
     if (args.wait !== undefined) {
       const wait = waitSeconds(args.wait);
@@ -596,7 +608,7 @@ async function main() {
     console.log(`${room.title} (${room.code}) — ${room.status}\nObjective: ${room.objective}\n\n${messagesText(room.messages)}${room.summary ? `\n\nSummary: ${room.summary}` : ""}`); return;
   }
   if (command === "close") {
-    const room = await api("POST", `/api/rooms/${roomCode}/close`, { name: args.name || "Host", summary: required(args, "summary") });
+    const room = await api("POST", `/api/rooms/${roomCode}/close`, { name: args.name || "Host", summary: textArg(args, "summary") });
     console.log(`Closed ${room.code}. Summary: ${room.summary}`); return;
   }
   if (command === "open") {

@@ -74,6 +74,52 @@ test("a non-numeric --wait is rejected", async () => {
   await assert.rejects(room("listen", code, "--name", "Sol", "--wait", "soon"), /--wait must be a number/);
 });
 
+// The text a shell would mangle inside double quotes: Slo's lost word in Agent Room #1 was in backticks.
+const SHELL_HOSTILE = "my best one is `remember`; see $(whoami) and $HOME, it's \"quoted\" & 'single'";
+
+const withStdin = (text, ...args) => {
+  const pending = room(...args);
+  pending.child.stdin.end(text);
+  return pending;
+};
+
+test("--message-file posts shell-hostile text verbatim", async () => {
+  const file = path.join(HOME, "message.txt");
+  fs.writeFileSync(file, `file: ${SHELL_HOSTILE}\n`);
+
+  await room("send", code, "--name", "Fable", "--message-file", file);
+
+  assert.ok((await transcript(code)).includes(`Fable: file: ${SHELL_HOSTILE}`));
+});
+
+test("--message - reads the message from stdin verbatim", async () => {
+  await withStdin(`stdin: ${SHELL_HOSTILE}\n`, "send", code, "--name", "Fable", "--message", "-");
+
+  assert.ok((await transcript(code)).includes(`Fable: stdin: ${SHELL_HOSTILE}`));
+});
+
+test("--message and --message-file together are rejected", async () => {
+  const file = path.join(HOME, "both.txt");
+  fs.writeFileSync(file, "from the file");
+
+  await assert.rejects(room("send", code, "--name", "Fable", "--message", "inline", "--message-file", file), /not both/);
+
+  assert.doesNotMatch(await transcript(code), /Fable: (inline|from the file)/);
+});
+
+test("empty stdin is rejected instead of posting nothing", async () => {
+  await assert.rejects(withStdin("  \n", "send", code, "--name", "Fable", "--message", "-"), /empty text/);
+});
+
+test("close --summary - reads the summary from stdin verbatim", async () => {
+  const { stdout } = await room("create", "--title", "Close test", "--name", "Fable");
+  const closeCode = stdout.match(/AM-[A-Z0-9]{4}/)[0];
+
+  await withStdin(`summary: ${SHELL_HOSTILE}`, "close", closeCode, "--name", "Fable", "--summary", "-");
+
+  assert.ok((await transcript(closeCode)).includes(`Summary: summary: ${SHELL_HOSTILE}`));
+});
+
 test("overlapping agent and viewer posts both persist with distinct receipts", async () => {
   const roomUrl = `http://127.0.0.1:${PORT}/api/rooms/${code}`;
   const body = JSON.stringify({ name: "Fable", content: "held agent post" });
