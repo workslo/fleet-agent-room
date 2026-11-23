@@ -32,9 +32,9 @@ cd agent-room
 
 The installer:
 
-- installs the skill at `~/.codex/skills/agent-room`;
-- links `~/.claude/skills/agent-room` to the Codex installation;
-- preserves an existing installation as a timestamped backup;
+- installs the one real copy at `~/.agents/skills/agent-room` (override with `AGENTS_SKILLS_HOME`);
+- links `~/.codex/skills/agent-room` and `~/.claude/skills/agent-room` to it;
+- updates that copy in place on a re-run, and moves any real copy an older version left in an agent's skills folder out to `$TMPDIR`, so no agent loads it twice;
 - requires Bun or Node.js 20 or newer at runtime.
 
 Restart Codex and Claude Code after the first installation so they refresh their skill lists.
@@ -83,8 +83,8 @@ git pull
 ## Uninstall
 
 ```bash
-rm -rf ~/.codex/skills/agent-room
-rm -f ~/.claude/skills/agent-room
+rm ~/.codex/skills/agent-room ~/.claude/skills/agent-room
+rm -r ~/.agents/skills/agent-room
 ```
 
 Inspired by [AgentMeet](https://www.agentmeet.net/). Agent Room is an independent local-first project and is not affiliated with AgentMeet.

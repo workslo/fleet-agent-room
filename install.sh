@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
+# Installs the skill once into the shared skills store, then links each agent's skills dir to it.
 set -euo pipefail
 
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CODEX_ROOT="${CODEX_HOME:-$HOME/.codex}"
-CLAUDE_ROOT="${CLAUDE_HOME:-$HOME/.claude}"
-CODEX_SKILL="$CODEX_ROOT/skills/agent-room"
-CLAUDE_SKILL="$CLAUDE_ROOT/skills/agent-room"
+SKILLS_ROOT="${AGENTS_SKILLS_HOME:-$HOME/.agents/skills}"
+SKILL_DIR="$SKILLS_ROOT/agent-room"
+DEFAULT_SKILL_DIR="$HOME/.agents/skills/agent-room"
+LINKS=("${CODEX_HOME:-$HOME/.codex}/skills/agent-room" "${CLAUDE_HOME:-$HOME/.claude}/skills/agent-room")
+FILES=(SKILL.md agents/openai.yaml scripts/agent_room.mjs)
 STAMP="$(date +%Y%m%d-%H%M%S)"
 
 if ! command -v bun >/dev/null 2>&1 && ! command -v node >/dev/null 2>&1; then
@@ -21,41 +23,50 @@ if command -v node >/dev/null 2>&1; then
   fi
 fi
 
-mkdir -p "$CODEX_ROOT/skills" "$CLAUDE_ROOT/skills"
-
+mkdir -p "$SKILLS_ROOT"
 SOURCE_REAL="$(cd "$SOURCE_DIR" && pwd -P)"
-DEST_REAL=""
-if [ -d "$CODEX_SKILL" ]; then
-  DEST_REAL="$(cd "$CODEX_SKILL" && pwd -P)"
-fi
+SKILL_REAL=""
+[ -d "$SKILL_DIR" ] && SKILL_REAL="$(cd "$SKILL_DIR" && pwd -P)"
 
-if [ "$SOURCE_REAL" != "$DEST_REAL" ]; then
-  if [ -e "$CODEX_SKILL" ] || [ -L "$CODEX_SKILL" ]; then
-    mv "$CODEX_SKILL" "$CODEX_SKILL.backup-$STAMP"
-    echo "Backed up existing Codex skill to $CODEX_SKILL.backup-$STAMP"
+# 1. The one real copy lives in the shared store. Skip when the checkout itself is the store copy.
+if [ "$SOURCE_REAL" != "$SKILL_REAL" ]; then
+  STAGE="$(mktemp -d "$SKILLS_ROOT/.agent-room-install.XXXXXX")"
+  for file in "${FILES[@]}"; do
+    mkdir -p "$STAGE/$(dirname "$file")"
+    cp "$SOURCE_DIR/$file" "$STAGE/$file"
+  done
+  chmod 755 "$STAGE"
+  chmod +x "$STAGE/scripts/agent_room.mjs"
+  if [ "$SKILL_DIR" != "$DEFAULT_SKILL_DIR" ]; then
+    # SKILL.md tells agents where the CLI lives; point it at the custom store.
+    sed -i.orig "s|^ROOM_CLI=.*|ROOM_CLI=\"$SKILL_DIR/scripts/agent_room.mjs\"|" "$STAGE/SKILL.md"
+    rm "$STAGE/SKILL.md.orig"
   fi
-  mkdir -p "$CODEX_SKILL/agents" "$CODEX_SKILL/scripts"
-  cp "$SOURCE_DIR/SKILL.md" "$CODEX_SKILL/SKILL.md"
-  cp "$SOURCE_DIR/agents/openai.yaml" "$CODEX_SKILL/agents/openai.yaml"
-  cp "$SOURCE_DIR/scripts/agent_room.mjs" "$CODEX_SKILL/scripts/agent_room.mjs"
-  chmod +x "$CODEX_SKILL/scripts/agent_room.mjs"
-fi
-
-if [ -e "$CLAUDE_SKILL" ] || [ -L "$CLAUDE_SKILL" ]; then
-  CURRENT_TARGET="$(readlink "$CLAUDE_SKILL" 2>/dev/null || true)"
-  if [ "$CURRENT_TARGET" != "$CODEX_SKILL" ]; then
-    mv "$CLAUDE_SKILL" "$CLAUDE_SKILL.backup-$STAMP"
-    echo "Backed up existing Claude skill to $CLAUDE_SKILL.backup-$STAMP"
-  else
-    rm "$CLAUDE_SKILL"
+  if [ -L "$SKILL_DIR" ]; then
+    rm "$SKILL_DIR"
+  elif [ -e "$SKILL_DIR" ]; then
+    rm -r "$SKILL_DIR"
   fi
+  mv "$STAGE" "$SKILL_DIR"
 fi
 
-ln -s "$CODEX_SKILL" "$CLAUDE_SKILL"
+# 2. Each agent's skills dir gets a link. An older install left a real copy here, so move it
+#    out of the skills dir entirely: anything left beside the link would load as a second skill.
+for link in "${LINKS[@]}"; do
+  mkdir -p "$(dirname "$link")"
+  if [ -L "$link" ]; then
+    rm "$link"
+  elif [ -e "$link" ]; then
+    moved="${TMPDIR:-/tmp}/agent-room-old-install-$STAMP-$(basename "$(dirname "$(dirname "$link")")")"
+    mv "$link" "$moved"
+    echo "Moved the old copy at $link to $moved"
+  fi
+  ln -s "$SKILL_DIR" "$link"
+done
 
 echo
 echo "Agent Room installed."
-echo "Codex:  $CODEX_SKILL"
-echo "Claude: $CLAUDE_SKILL -> $CODEX_SKILL"
+echo "Skill:  $SKILL_DIR"
+for link in "${LINKS[@]}"; do echo "Link:   $link -> $SKILL_DIR"; done
 echo
 echo "Restart Codex and Claude Code to refresh their skill lists."
